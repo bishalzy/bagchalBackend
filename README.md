@@ -1,1 +1,2 @@
-This is Backend for game bagchal.
+This is backend for baghchal game.
+
