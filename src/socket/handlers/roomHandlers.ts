@@ -4,12 +4,12 @@ import { logger } from '../../utils/logger.js';
 
 export const registerRoomHandlers = (io: Server, socket: Socket, playerId: string) => {
     
-    socket.on('create-room', async (callback) => {
+    socket.on('create-room', async (data: { name: string, preferredSide: 'bakhra' | 'bagh' }, callback) => {
         try {
-            const room = await RoomService.createRoom(playerId, socket.id);
+            const room = await RoomService.createRoom(playerId, socket.id, data.name, data.preferredSide);
             socket.join(room.id);
             socket.emit('room-created', { roomId: room.id });
-            logger.info(`Player ${playerId} created room ${room.id}`);
+            logger.info(`Player ${playerId} created room ${room.id} as ${data.preferredSide}`);
             if (callback) callback({ success: true, roomId: room.id });
         } catch (err) {
             logger.error('Create room error:', err);
@@ -18,10 +18,10 @@ export const registerRoomHandlers = (io: Server, socket: Socket, playerId: strin
         }
     });
 
-    socket.on('join-room', async (roomId, callback) => {
+    socket.on('join-room', async (data: { roomId: string, name: string }, callback) => {
         try {
-            roomId = roomId.toUpperCase();
-            const { room, error } = await RoomService.joinRoom(roomId, playerId, socket.id);
+            const roomId = data.roomId.toUpperCase();
+            const { room, error } = await RoomService.joinRoom(roomId, playerId, socket.id, data.name);
             if (error) {
                 socket.emit('error', { code: error, message: error });
                 if (callback) callback({ error });
@@ -29,9 +29,9 @@ export const registerRoomHandlers = (io: Server, socket: Socket, playerId: strin
             }
 
             socket.join(roomId);
-            socket.emit('room-joined', { roomId, state: room!.gameState });
+            socket.emit('room-joined', { roomId, state: room!.gameState, players: room!.players });
             
-            io.to(roomId).emit('game-start', { state: room!.gameState });
+            io.to(roomId).emit('game-start', { state: room!.gameState, players: room!.players });
             logger.info(`Player ${playerId} joined room ${roomId}`);
             if (callback) callback({ success: true, roomId });
         } catch (err) {

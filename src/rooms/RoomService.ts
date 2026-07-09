@@ -4,11 +4,11 @@ import { generateRoomCode } from '../utils/roomCode.js';
 import { GameEngine } from '../game/GameEngine.js';
 
 export class RoomService {
-    static async createRoom(playerId: string, socketId: string): Promise<Room> {
+    static async createRoom(playerId: string, socketId: string, name: string, preferredSide: 'bakhra' | 'bagh'): Promise<Room> {
         const roomId = generateRoomCode();
         const room: Room = {
             id: roomId,
-            players: [{ id: playerId, socketId }],
+            players: [{ id: playerId, socketId, name, side: preferredSide, wantsRematch: false }],
             gameState: GameEngine.createInitialState(),
             status: 'waiting',
             createdAt: Date.now()
@@ -20,14 +20,17 @@ export class RoomService {
         return room;
     }
 
-    static async joinRoom(roomId: string, playerId: string, socketId: string): Promise<{ room: Room | null, error?: string }> {
+    static async joinRoom(roomId: string, playerId: string, socketId: string, name: string): Promise<{ room: Room | null, error?: string }> {
         const room = await RoomRepository.getRoom(roomId);
         
         if (!room) return { room: null, error: 'ROOM_NOT_FOUND' };
         if (room.players.length >= 2) return { room: null, error: 'ROOM_FULL' };
-        if (room.players.some((p: any) => p.id === playerId)) return { room: null, error: 'ALREADY_IN_ROOM' };
+        if (room.players.some(p => p.id === playerId)) return { room: null, error: 'ALREADY_IN_ROOM' };
 
-        room.players.push({ id: playerId, socketId });
+        const creatorSide = room.players[0].side;
+        const joinerSide = creatorSide === 'bakhra' ? 'bagh' : 'bakhra';
+
+        room.players.push({ id: playerId, socketId, name, side: joinerSide, wantsRematch: false });
         room.status = 'playing';
 
         await RoomRepository.saveRoom(room);
@@ -49,7 +52,6 @@ export class RoomService {
             } else {
                 room.status = 'finished'; // Other player wins/game aborts
                 room.gameState.gameOver = true;
-                // If the player who left was playing as Goat, Tiger wins, etc. For simplicity, just mark over.
                 await RoomRepository.saveRoom(room);
             }
         }
@@ -63,12 +65,10 @@ export class RoomService {
         if (!room) return { room: null, error: 'ROOM_NOT_FOUND' };
         if (room.status !== 'playing') return { room: null, error: 'GAME_NOT_IN_PROGRESS' };
 
-        const playerIndex = room.players.findIndex((p: any) => p.id === playerId);
-        if (playerIndex === -1) return { room: null, error: 'PLAYER_NOT_IN_ROOM' };
+        const player = room.players.find((p: any) => p.id === playerId);
+        if (!player) return { room: null, error: 'PLAYER_NOT_IN_ROOM' };
 
-        // Player 0 is Goat (bakhra), Player 1 is Tiger (bagh) based on join order
-        const expectedTurn = playerIndex === 0 ? 'bakhra' : 'bagh';
-        if (room.gameState.turn !== expectedTurn) return { room: null, error: 'NOT_YOUR_TURN' };
+        if (room.gameState.turn !== player.side) return { room: null, error: 'NOT_YOUR_TURN' };
 
         const { state, error } = GameEngine.processMove(room.gameState, from, to);
         
@@ -83,5 +83,42 @@ export class RoomService {
 
         await RoomRepository.saveRoom(room);
         return { room };
+    }
+
+    static async playAgain(roomId: string, playerId: string): Promise<{ room: Room | null, rematchStarted: boolean, error?: string }> {
+        const room = await RoomRepository.getRoom(roomId);
+        if (!room) return { room: null, rematchStarted: false, error: 'ROOM_NOT_FOUND' };
+        if (room.status !== 'finished') return { room: null, rematchStarted: false, error: 'GAME_NOT_FINISHED' };
+
+        const player = room.players.find((p: any) => p.id === playerId);
+        if (!player) return { room: null, rematchStarted: false, error: 'PLAYER_NOT_IN_ROOM' };
+
+        player.wantsRematch = true;
+        let rematchStarted = false;
+
+        if (room.players.every((p: any) => p.wantsRematch)) {
+            // Swap sides
+            room.players[0].side = room.players[0].side === 'bakhra' ? 'bagh' : 'bakhra';
+            room.players[1].side = room.players[1].side === 'bakhra' ? 'bagh' : 'bakhra';
+            
+            // Reset state
+            room.gameState = GameEngine.createInitialState();
+            room.players.forEach((p: any) => p.wantsRematch = false);
+            room.status = 'playing';
+            rematchStarted = true;
+        }
+
+        await RoomRepository.saveRoom(room);
+        return { room, rematchStarted };
+    }
+
+    static async destroyRoom(roomId: string): Promise<void> {
+        const room = await RoomRepository.getRoom(roomId);
+        if (room) {
+            for (const p of room.players) {
+                await RoomRepository.removeSocketMapping(p.socketId);
+            }
+            await RoomRepository.deleteRoom(roomId);
+        }
     }
 }

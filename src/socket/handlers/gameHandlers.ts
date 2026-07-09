@@ -20,7 +20,7 @@ export const registerGameHandlers = (io: Server, socket: Socket, playerId: strin
                 return;
             }
 
-            io.to(room!.id).emit('state-update', { state: room!.gameState });
+            io.to(room!.id).emit('state-update', { state: room!.gameState, move: { from: data.from, to: data.to } });
 
             if (room!.gameState.gameOver) {
                 io.to(room!.id).emit('game-over', { 
@@ -33,6 +33,38 @@ export const registerGameHandlers = (io: Server, socket: Socket, playerId: strin
         } catch (err) {
             logger.error('Make move error:', err);
             socket.emit('error', { code: 'SERVER_ERROR', message: 'Failed to process move' });
+        }
+    });
+
+    socket.on('play-again', async () => {
+        try {
+            const mapping = await RoomRepository.getPlayerBySocket(socket.id);
+            if (!mapping) return;
+
+            const { room, rematchStarted, error } = await RoomService.playAgain(mapping.roomId, playerId);
+            if (error) {
+                socket.emit('error', { code: error, message: error });
+                return;
+            }
+
+            if (rematchStarted) {
+                io.to(room!.id).emit('rematch-started', { state: room!.gameState, players: room!.players });
+            }
+        } catch (err) {
+            logger.error('Play again error:', err);
+        }
+    });
+
+    socket.on('cancel-game', async () => {
+        try {
+            const mapping = await RoomRepository.getPlayerBySocket(socket.id);
+            if (!mapping) return;
+
+            await RoomService.destroyRoom(mapping.roomId);
+            io.to(mapping.roomId).emit('room-destroyed');
+            io.in(mapping.roomId).socketsLeave(mapping.roomId);
+        } catch (err) {
+            logger.error('Cancel game error:', err);
         }
     });
 
