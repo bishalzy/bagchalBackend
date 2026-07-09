@@ -11,8 +11,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
     cors: {
-        // origin: 'https://baghchal.xyz',
-        origin: "*",
+        origin: process.env.MODE === 'production' ? process.env.ALLOWED_HOST || "*" : "*",
         methods: ['GET', 'POST'],
     }
 });
