@@ -62,7 +62,7 @@ export const registerGameHandlers = (io: Server, socket: Socket, playerId: strin
             if (!mapping) return;
 
             await RoomService.destroyRoom(mapping.roomId);
-            io.to(mapping.roomId).emit('room-destroyed');
+            io.to(mapping.roomId).emit('room-destroyed', { by: socket.id });
             io.in(mapping.roomId).socketsLeave(mapping.roomId);
         } catch (err) {
             logger.error('Cancel game error:', err);
