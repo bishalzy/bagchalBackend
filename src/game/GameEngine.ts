@@ -11,7 +11,8 @@ export class GameEngine {
             bakhrasPlaced: 0,
             bakhrasCaptured: 0,
             gameOver: false,
-            winner: null
+            winner: null,
+            moveHistory: []
         };
     }
 
@@ -83,7 +84,7 @@ export class GameEngine {
     static processMove(state: GameState, from: string | undefined, to: string): { state: GameState, error?: string } {
         if (state.gameOver) return { state, error: "GAME_ALREADY_FINISHED" };
 
-        let newState = { ...state, baghs: [...state.baghs], bakhras: [...state.bakhras] };
+        let newState = { ...state, baghs: [...state.baghs], bakhras: [...state.bakhras], moveHistory: [...(state.moveHistory || [])] };
 
         // Goat Placement
         if (state.turn === 'bakhra' && !from) {
@@ -92,6 +93,7 @@ export class GameEngine {
             
             newState.bakhras.push(to);
             newState.bakhrasPlaced++;
+            newState.moveHistory.push(`Goat placed at ${to}`);
         }
         // Piece Movement
         else if (from) {
@@ -119,6 +121,12 @@ export class GameEngine {
             if (move.capture) {
                 newState.bakhras = newState.bakhras.filter(b => b !== move.capture);
                 newState.bakhrasCaptured++;
+            }
+
+            if (isTiger) {
+                newState.moveHistory.push(`Tiger moved ${from} -> ${to}${move.capture ? ` (Captured ${move.capture})` : ""}`);
+            } else {
+                newState.moveHistory.push(`Goat moved ${from} -> ${to}`);
             }
         } else {
              return { state, error: "INVALID_PAYLOAD" };

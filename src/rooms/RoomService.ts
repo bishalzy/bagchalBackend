@@ -3,6 +3,8 @@ import { RoomRepository } from './RoomRepository.js';
 import { generateRoomCode } from '../utils/roomCode.js';
 import { GameEngine } from '../game/GameEngine.js';
 
+export const disconnectionTimeouts = new Map<string, NodeJS.Timeout>();
+
 export class RoomService {
     static async createRoom(playerId: string, socketId: string, name: string, preferredSide: 'bakhra' | 'bagh'): Promise<Room> {
         const roomId = generateRoomCode();
@@ -39,19 +41,43 @@ export class RoomService {
         return { room };
     }
 
+    static async rejoinRoom(roomId: string, playerId: string, newSocketId: string): Promise<{ room: Room | null, error?: string }> {
+        const room = await RoomRepository.getRoom(roomId);
+        if (!room) return { room: null, error: 'ROOM_NOT_FOUND' };
+
+        const player = room.players.find((p: any) => p.id === playerId);
+        if (!player) return { room: null, error: 'PLAYER_NOT_IN_ROOM' };
+
+        player.socketId = newSocketId;
+        
+        // If both players are present, resume game
+        if (room.players.length === 2 && room.players.every((p: any) => p.socketId !== null)) {
+            room.status = 'playing';
+        }
+
+        await RoomRepository.saveRoom(room);
+        await RoomRepository.mapSocketToPlayer(newSocketId, playerId, roomId);
+
+        return { room };
+    }
+
     static async leaveRoom(socketId: string): Promise<{ roomId: string, room: Room } | null> {
         const mapping = await RoomRepository.getPlayerBySocket(socketId);
         if (!mapping) return null;
 
         const room = await RoomRepository.getRoom(mapping.roomId);
         if (room) {
-            room.players = room.players.filter((p: any) => p.socketId !== socketId);
+            const player = room.players.find((p: any) => p.socketId === socketId);
+            if (player) {
+                player.socketId = null; // Mark as disconnected
+            }
             
-            if (room.players.length === 0) {
+            const connectedPlayers = room.players.filter((p: any) => p.socketId !== null);
+            
+            if (connectedPlayers.length === 0) {
                 await RoomRepository.deleteRoom(room.id);
             } else {
-                room.status = 'finished'; // Other player wins/game aborts
-                room.gameState.gameOver = true;
+                room.status = 'waiting'; 
                 await RoomRepository.saveRoom(room);
             }
         }

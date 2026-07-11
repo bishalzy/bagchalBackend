@@ -6,4 +6,5 @@ export interface GameState {
     bakhrasCaptured: number;
     gameOver: boolean;
     winner: 'bakhra' | 'bagh' | null;
+    moveHistory: string[];
 }

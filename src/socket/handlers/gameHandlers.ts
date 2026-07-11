@@ -1,5 +1,5 @@
 import { Server, Socket } from 'socket.io';
-import { RoomService } from '../../rooms/RoomService.js';
+import { RoomService, disconnectionTimeouts } from '../../rooms/RoomService.js';
 import { logger } from '../../utils/logger.js';
 import { RoomRepository } from '../../rooms/RoomRepository.js';
 
@@ -13,7 +13,7 @@ export const registerGameHandlers = (io: Server, socket: Socket, playerId: strin
                 return;
             }
 
-            const { room, error } = await RoomService.handleMove(mapping.roomId, playerId, data.from, data.to);
+            const { room, error } = await RoomService.handleMove(mapping.roomId, mapping.playerId, data.from, data.to);
             if (error) {
                 socket.emit('invalid-move', { message: error });
                 if (callback) callback({ error });
@@ -41,7 +41,7 @@ export const registerGameHandlers = (io: Server, socket: Socket, playerId: strin
             const mapping = await RoomRepository.getPlayerBySocket(socket.id);
             if (!mapping) return;
 
-            const { room, rematchStarted, error } = await RoomService.playAgain(mapping.roomId, playerId);
+            const { room, rematchStarted, error } = await RoomService.playAgain(mapping.roomId, mapping.playerId);
             if (error) {
                 socket.emit('error', { code: error, message: error });
                 return;
@@ -70,10 +70,30 @@ export const registerGameHandlers = (io: Server, socket: Socket, playerId: strin
 
     socket.on('disconnect', async () => {
         try {
+            const mapping = await RoomRepository.getPlayerBySocket(socket.id);
+            const actualPlayerId = mapping ? mapping.playerId : playerId;
+            
             const result = await RoomService.leaveRoom(socket.id);
             if (result) {
-                io.to(result.roomId).emit('player-left');
-                logger.info(`Player ${playerId} left room ${result.roomId}`);
+                if (result.room && result.room.players.length > 0) {
+                    io.to(result.roomId).emit('player-disconnected', { timeout: 10 });
+                    logger.info(`Player ${actualPlayerId} left room ${result.roomId}, waiting 10s for reconnect`);
+                    
+                    const timeoutId = setTimeout(async () => {
+                        const room = await RoomRepository.getRoom(result.roomId);
+                        if (room && room.players.filter((p: any) => p.socketId !== null).length < 2) {
+                            await RoomService.destroyRoom(result.roomId);
+                            io.to(result.roomId).emit('room-destroyed-info', { message: 'Opponent failed to reconnect. Room closed.' });
+                            io.in(result.roomId).socketsLeave(result.roomId);
+                        }
+                        disconnectionTimeouts.delete(result.roomId);
+                    }, 10000);
+                    
+                    disconnectionTimeouts.set(result.roomId, timeoutId);
+                } else {
+                    io.to(result.roomId).emit('player-left');
+                    logger.info(`Player ${actualPlayerId} left room ${result.roomId}`);
+                }
             }
         } catch (err) {
             logger.error('Disconnect handling error:', err);
