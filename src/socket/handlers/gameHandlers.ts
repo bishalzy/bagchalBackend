@@ -15,7 +15,8 @@ export const registerGameHandlers = (io: Server, socket: Socket, playerId: strin
 
             const { room, error } = await RoomService.handleMove(mapping.roomId, mapping.playerId, data.from, data.to);
             if (error) {
-                socket.emit('invalid-move', { message: error });
+                const currentRoom = await RoomRepository.getRoom(mapping.roomId);
+                socket.emit('invalid-move', { message: error, state: currentRoom?.gameState });
                 if (callback) callback({ error });
                 return;
             }
@@ -23,9 +24,9 @@ export const registerGameHandlers = (io: Server, socket: Socket, playerId: strin
             io.to(room!.id).emit('state-update', { state: room!.gameState, move: { from: data.from, to: data.to } });
 
             if (room!.gameState.gameOver) {
-                io.to(room!.id).emit('game-over', { 
-                    winner: room!.gameState.winner, 
-                    state: room!.gameState 
+                io.to(room!.id).emit('game-over', {
+                    winner: room!.gameState.winner,
+                    state: room!.gameState
                 });
             }
 
@@ -72,13 +73,13 @@ export const registerGameHandlers = (io: Server, socket: Socket, playerId: strin
         try {
             const mapping = await RoomRepository.getPlayerBySocket(socket.id);
             const actualPlayerId = mapping ? mapping.playerId : playerId;
-            
+
             const result = await RoomService.leaveRoom(socket.id);
             if (result) {
                 if (result.room && result.room.players.length > 0) {
                     io.to(result.roomId).emit('player-disconnected', { timeout: 10 });
                     logger.info(`Player ${actualPlayerId} left room ${result.roomId}, waiting 10s for reconnect`);
-                    
+
                     const timeoutId = setTimeout(async () => {
                         const room = await RoomRepository.getRoom(result.roomId);
                         if (room && room.players.filter((p: any) => p.socketId !== null).length < 2) {
@@ -88,7 +89,7 @@ export const registerGameHandlers = (io: Server, socket: Socket, playerId: strin
                         }
                         disconnectionTimeouts.delete(result.roomId);
                     }, 10000);
-                    
+
                     disconnectionTimeouts.set(result.roomId, timeoutId);
                 } else {
                     io.to(result.roomId).emit('player-left');
