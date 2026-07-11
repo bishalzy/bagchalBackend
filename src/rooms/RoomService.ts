@@ -2,6 +2,7 @@ import { Room } from '../models/Room.js';
 import { RoomRepository } from './RoomRepository.js';
 import { generateRoomCode } from '../utils/roomCode.js';
 import { GameEngine } from '../game/GameEngine.js';
+import { redlock } from '../redis/client.js';
 
 export const disconnectionTimeouts = new Map<string, NodeJS.Timeout>();
 
@@ -87,28 +88,40 @@ export class RoomService {
     }
 
     static async handleMove(roomId: string, playerId: string, from: string | undefined, to: string): Promise<{ room: Room | null, error?: string }> {
-        const room = await RoomRepository.getRoom(roomId);
-        if (!room) return { room: null, error: 'ROOM_NOT_FOUND' };
-        if (room.status !== 'playing') return { room: null, error: 'GAME_NOT_IN_PROGRESS' };
+        const lockKey = `locks:room:${roomId}`;
+        let lock;
+        try {
+            lock = await redlock.acquire([lockKey], 5000);
 
-        const player = room.players.find((p: any) => p.id === playerId);
-        if (!player) return { room: null, error: 'PLAYER_NOT_IN_ROOM' };
+            const room = await RoomRepository.getRoom(roomId);
+            if (!room) return { room: null, error: 'ROOM_NOT_FOUND' };
+            if (room.status !== 'playing') return { room: null, error: 'GAME_NOT_IN_PROGRESS' };
 
-        if (room.gameState.turn !== player.side) return { room: null, error: 'NOT_YOUR_TURN' };
+            const player = room.players.find((p: any) => p.id === playerId);
+            if (!player) return { room: null, error: 'PLAYER_NOT_IN_ROOM' };
 
-        const { state, error } = GameEngine.processMove(room.gameState, from, to);
-        
-        if (error) {
-            return { room: null, error };
+            if (room.gameState.turn !== player.side) return { room: null, error: 'NOT_YOUR_TURN' };
+
+            const { state, error } = GameEngine.processMove(room.gameState, from, to);
+            
+            if (error) {
+                return { room: null, error };
+            }
+
+            room.gameState = state;
+            if (state.gameOver) {
+                room.status = 'finished';
+            }
+
+            await RoomRepository.saveRoom(room);
+            return { room };
+        } catch (err: any) {
+            return { room: null, error: err.message === 'The operation was unable to achieve a quorum during its retry window.' ? 'CONCURRENT_MOVE_REJECTED' : 'SERVER_ERROR' };
+        } finally {
+            if (lock) {
+                await lock.release().catch(console.error);
+            }
         }
-
-        room.gameState = state;
-        if (state.gameOver) {
-            room.status = 'finished';
-        }
-
-        await RoomRepository.saveRoom(room);
-        return { room };
     }
 
     static async playAgain(roomId: string, playerId: string): Promise<{ room: Room | null, rematchStarted: boolean, error?: string }> {
