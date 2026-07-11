@@ -142,7 +142,9 @@ export class RoomService {
         const room = await RoomRepository.getRoom(roomId);
         if (room) {
             for (const p of room.players) {
-                await RoomRepository.removeSocketMapping(p.socketId);
+                if (p.socketId) {
+                    await RoomRepository.removeSocketMapping(p.socketId);
+                }
             }
             await RoomRepository.deleteRoom(roomId);
         }
