@@ -1,3 +1,4 @@
+
 version: '3.8'
 
 services:
@@ -7,10 +8,14 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
     environment:
       - REDIS_URL=redis://redis:6379
-      # You can add other environment variables from your .env here
-      # - MODE=production
+      - MODE=production
+      - ALLOWED_HOST=https://baghchal.xyz
     depends_on:
       - redis
     restart: unless-stopped
