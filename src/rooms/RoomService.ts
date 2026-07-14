@@ -8,7 +8,16 @@ export const disconnectionTimeouts = new Map<string, NodeJS.Timeout>();
 
 export class RoomService {
     static async createRoom(playerId: string, socketId: string, name: string, preferredSide: 'bakhra' | 'bagh'): Promise<Room> {
-        const roomId = generateRoomCode();
+        let roomId = generateRoomCode();
+        // Ensure no collision with existing room
+        let attempts = 0;
+        while (await RoomRepository.getRoom(roomId) && attempts < 10) {
+            roomId = generateRoomCode();
+            attempts++;
+        }
+        if (attempts >= 10) {
+            throw new Error('Failed to generate unique room code');
+        }
         const room: Room = {
             id: roomId,
             players: [{ id: playerId, socketId, name, side: preferredSide, wantsRematch: false }],
@@ -78,7 +87,10 @@ export class RoomService {
             if (connectedPlayers.length === 0) {
                 await RoomRepository.deleteRoom(room.id);
             } else {
-                room.status = 'waiting'; 
+                // Only downgrade to 'waiting' if game was actively playing
+                if (room.status === 'playing') {
+                    room.status = 'waiting';
+                }
                 await RoomRepository.saveRoom(room);
             }
         }

@@ -7,10 +7,15 @@ import { ClientToServerEvents, ServerToClientEvents } from '../models/SocketEven
 
 export const initializeSocket = (io: Server<ClientToServerEvents, ServerToClientEvents>) => {
     io.on('connection', (socket: Socket) => {
-        const playerId = generatePlayerId();
+        let playerId = generatePlayerId();
         logger.info(`New connection: Socket ${socket.id} assigned Player ${playerId}`);
         
         socket.emit('connected', { playerId });
+
+        // Allow playerId to be updated on rejoin
+        socket.on('rejoin-room', (data: any) => {
+            playerId = data.playerId;
+        });
 
         registerRoomHandlers(io as any, socket, playerId);
         registerGameHandlers(io as any, socket, playerId);
