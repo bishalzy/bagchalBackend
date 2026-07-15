@@ -11,9 +11,14 @@ const PORT = process.env.PORT || 3000;
 
 const server = http.createServer(app);
 
+const isProduction = process.env.MODE === 'production';
+if (isProduction && !process.env.ALLOWED_HOST) {
+    console.warn('[WARN] ALLOWED_HOST not set in production — CORS will block all cross-origin requests.');
+}
+
 const io = new Server(server, {
     cors: {
-        origin: process.env.MODE === 'production' ? process.env.ALLOWED_HOST || "*" : "*",
+        origin: isProduction ? (process.env.ALLOWED_HOST || false) : "*",
         methods: ['GET', 'POST'],
     },
     adapter: createAdapter(publisher, subscriber)

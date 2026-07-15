@@ -10,6 +10,16 @@ export class RoomRepository {
         await redis.set(key, JSON.stringify(room), 'EX', ROOM_TTL);
     }
 
+    /**
+     * Atomically creates a room only if the key doesn't already exist.
+     * Returns true if the room was created, false if a room with that ID already exists.
+     */
+    static async createRoomIfNotExists(room: Room): Promise<boolean> {
+        const key = redisKeys.room(room.id);
+        const result = await redis.set(key, JSON.stringify(room), 'EX', ROOM_TTL, 'NX');
+        return result === 'OK';
+    }
+
     static async getRoom(roomId: string): Promise<Room | null> {
         const key = redisKeys.room(roomId);
         const data = await redis.get(key);
