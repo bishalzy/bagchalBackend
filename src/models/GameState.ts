@@ -7,4 +7,5 @@ export interface GameState {
     gameOver: boolean;
     winner: 'bakhra' | 'bagh' | null;
     moveHistory: string[];
+    lastMove: { from?: string | null, to: string } | null;
 }

@@ -12,7 +12,8 @@ export class GameEngine {
             bakhrasCaptured: 0,
             gameOver: false,
             winner: null,
-            moveHistory: []
+            moveHistory: [],
+            lastMove: null
         };
     }
 
@@ -94,6 +95,7 @@ export class GameEngine {
             newState.bakhras.push(to);
             newState.bakhrasPlaced++;
             newState.moveHistory.push(`Goat placed at ${to}`);
+            newState.lastMove = { from: null, to };
         }
         // Piece Movement
         else if (from) {
@@ -128,6 +130,7 @@ export class GameEngine {
             } else {
                 newState.moveHistory.push(`Goat moved ${from} -> ${to}`);
             }
+            newState.lastMove = { from, to };
         } else {
              return { state, error: "INVALID_PAYLOAD" };
         }

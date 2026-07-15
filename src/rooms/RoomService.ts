@@ -4,32 +4,31 @@ import { generateRoomCode } from '../utils/roomCode.js';
 import { GameEngine } from '../game/GameEngine.js';
 import { redlock } from '../redis/client.js';
 
-export const disconnectionTimeouts = new Map<string, NodeJS.Timeout>();
+export const disconnectionTimeouts = new Map<string, Set<NodeJS.Timeout>>();
 
 export class RoomService {
     static async createRoom(playerId: string, socketId: string, name: string, preferredSide: 'bakhra' | 'bagh'): Promise<Room> {
-        let roomId = generateRoomCode();
-        // Ensure no collision with existing room
-        let attempts = 0;
-        while (await RoomRepository.getRoom(roomId) && attempts < 10) {
-            roomId = generateRoomCode();
-            attempts++;
-        }
-        if (attempts >= 10) {
-            throw new Error('Failed to generate unique room code');
-        }
-        const room: Room = {
-            id: roomId,
-            players: [{ id: playerId, socketId, name, side: preferredSide, wantsRematch: false }],
-            gameState: GameEngine.createInitialState(),
-            status: 'waiting',
-            createdAt: Date.now()
-        };
+        const MAX_ATTEMPTS = 10;
 
-        await RoomRepository.saveRoom(room);
-        await RoomRepository.mapSocketToPlayer(socketId, playerId, roomId);
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+            const roomId = generateRoomCode();
+            const room: Room = {
+                id: roomId,
+                players: [{ id: playerId, socketId, name, side: preferredSide, wantsRematch: false }],
+                gameState: GameEngine.createInitialState(),
+                status: 'waiting',
+                createdAt: Date.now()
+            };
 
-        return room;
+            // Atomically claim the room key — fails if another room already has this code
+            const created = await RoomRepository.createRoomIfNotExists(room);
+            if (created) {
+                await RoomRepository.mapSocketToPlayer(socketId, playerId, roomId);
+                return room;
+            }
+        }
+
+        throw new Error('Failed to generate unique room code');
     }
 
     static async joinRoom(roomId: string, playerId: string, socketId: string, name: string): Promise<{ room: Room | null, error?: string }> {
